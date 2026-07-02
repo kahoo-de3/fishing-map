@@ -79,6 +79,7 @@
   <label><input type="checkbox" id="chkSlope" checked> かけあがり（急斜面）</label>
   <label><input type="checkbox" id="chkSed" checked> 底質（岩・砂など）</label>
   <label><input type="checkbox" id="chkMuni" checked> 市区町村界（沿岸）</label>
+  <label><input type="checkbox" id="chkPort" checked> 港名（<span style="color:#ff7b7b">赤字</span>）</label>
   <div id="sedLegend" style="display:flex;flex-wrap:wrap;gap:4px 8px;margin:2px 0 0 22px;color:#cfe3f5;font-size:10px">
     <span><span class="sw" style="background:#e05555"></span> 岩</span>
     <span><span class="sw" style="background:#ff9f40"></span> 礫</span>
@@ -164,6 +165,25 @@ async function init() {
       'text-allow-overlap': false
     },
     paint:{ 'text-color':'#fff', 'text-halo-color':'rgba(20,32,44,.95)', 'text-halo-width':1.6 }});
+
+  // 港名 (国土数値情報 C09漁港/C02港湾)
+  map.addSource('ports', { type:'geojson', data:'data/ports.json' });
+  map.addLayer({ id:'port-dot', type:'circle', source:'ports',
+    minzoom: 9,
+    paint:{ 'circle-color':'#d81e1e', 'circle-radius':3,
+            'circle-stroke-color':'#fff', 'circle-stroke-width':1 }});
+  map.addLayer({ id:'port-label', type:'symbol', source:'ports',
+    minzoom: 9,
+    layout:{
+      'text-field': ['get','n'],
+      'text-font': ['Noto Sans CJK JP Regular'],
+      'text-size': ['case', ['==', ['get','k'], '港湾'], 13, 11.5],
+      'text-offset': [0, 0.9],
+      'text-anchor': 'top',
+      'text-allow-overlap': false
+    },
+    paint:{ 'text-color':'#d81e1e',
+            'text-halo-color':'rgba(255,255,255,.95)', 'text-halo-width':1.8 }});
 
   // 底質 points (海しるAPI, 電子海図由来)
   const SED_COLOR = ['match', ['get','t'],
@@ -359,6 +379,9 @@ document.getElementById('chkSed').onchange = e => {
 };
 document.getElementById('chkMuni').onchange = e => {
   for (const id of ['muni-casing', 'muni-line', 'muni-label']) setVis(id, e.target.checked);
+};
+document.getElementById('chkPort').onchange = e => {
+  for (const id of ['port-dot', 'port-label']) setVis(id, e.target.checked);
 };
 document.getElementById('opacity').oninput = e => {
   const v = e.target.value / 100;

@@ -37,6 +37,8 @@ HTTPSなのでGPSの現在地ボタンも有効。
 - `docs/data/sediment.json` — 底質ポイント（岩・礫・砂・泥・貝殻・さんご・溶岩、約7,300点）
 - `docs/data/coastal_muni.json` — 海に面した54市区町村の境界＋名前ラベル（国土数値情報N03由来、
   tools/fetch_boundaries.py で生成。沿岸自治体リストは同スクリプト内で手動管理）
+- `docs/data/ports.json` — 港名121件（漁港104＋港湾17、赤字表示）。国土数値情報C09（漁港・2006）
+  ＋C02（港湾・2014）から tools/fetch_ports.py で生成
 - `tools/download_etopo.py` — 水深データのダウンロード（NOAA ETOPO 2022, 15秒メッシュ）
 - `tools/process.py` — オーバーレイ画像・グリッド生成
 - `tools/fetch_sediment.py` — 底質データの取得（海しるAPI。ポータル公開のお試しキー使用。
