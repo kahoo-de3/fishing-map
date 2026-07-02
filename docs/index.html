@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b2740">
+<title>釣りマップ 関東（東京・千葉・神奈川）</title>
+<link rel="manifest" href="manifest.json">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden;
+    font-family:"Hiragino Sans","Yu Gothic UI",sans-serif; }
+  #map { position:absolute; inset:0; }
+
+  #topbar {
+    position:absolute; top:calc(8px + env(safe-area-inset-top)); left:50%;
+    transform:translateX(-50%); z-index:10;
+    background:rgba(20,32,44,.88); color:#fff; border-radius:24px;
+    padding:8px 18px; font-size:16px; font-weight:600; white-space:nowrap;
+    box-shadow:0 2px 8px rgba(0,0,0,.35); pointer-events:none;
+  }
+  #topbar .depth { color:#5fd4ff; font-size:19px; }
+  #topbar .sub { color:#ffce54; font-size:12px; font-weight:500; margin-left:8px; }
+
+  #panel {
+    position:absolute; left:8px; bottom:calc(22px + env(safe-area-inset-bottom));
+    z-index:10; background:rgba(20,32,44,.88); color:#fff;
+    border-radius:12px; padding:10px 12px; font-size:12px; width:196px;
+    box-shadow:0 2px 8px rgba(0,0,0,.35);
+  }
+  #panel label { display:flex; align-items:center; gap:6px; margin:3px 0; cursor:pointer; }
+  #panel input[type=checkbox] { accent-color:#3fa8f5; width:16px; height:16px; }
+  #panel input[type=range] { width:100%; accent-color:#3fa8f5; }
+  .legend-bar { height:10px; border-radius:5px; margin-top:6px;
+    background:linear-gradient(90deg,#c8f8ff,#64dcf5,#28a0e1,#144e9b,#0c235a,#040a23); }
+  .legend-labels { display:flex; justify-content:space-between; color:#cfe3f5; font-size:10px; margin-top:2px; }
+  .slope-legend { display:flex; align-items:center; gap:5px; margin-top:6px; color:#cfe3f5; font-size:10px; }
+  .sw { width:14px; height:10px; border-radius:2px; display:inline-block; }
+
+  .maplibregl-ctrl-top-right { top:calc(54px + env(safe-area-inset-top)); }
+
+  #fishCard {
+    position:absolute; top:calc(56px + env(safe-area-inset-top)); left:50%;
+    transform:translateX(-50%); z-index:11;
+    width:min(320px, calc(100vw - 24px));
+    background:rgba(20,32,44,.93); color:#fff; border-radius:12px;
+    padding:10px 12px; font-size:13px; box-shadow:0 2px 10px rgba(0,0,0,.4);
+    max-height:42vh; overflow-y:auto; display:none;
+  }
+  #fishCard h3 { margin:0 0 2px; font-size:13px; color:#5fd4ff; }
+  #fishCard .basis { color:#9fb8cc; font-size:11px; margin-bottom:6px; }
+  #fishCard ul { margin:0; padding:0; list-style:none; }
+  #fishCard li { padding:3px 0; border-top:1px solid rgba(255,255,255,.08);
+    display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  #fishCard li .fn { font-weight:600; white-space:nowrap; }
+  #fishCard li .fn .peak { color:#ffce54; font-size:11px; margin-left:4px; }
+  #fishCard li .how { color:#9fb8cc; font-size:11px; text-align:right; }
+  #fishCard .close { position:absolute; top:6px; right:10px; color:#9fb8cc;
+    font-size:18px; cursor:pointer; line-height:1; }
+  #fishCard .disclaim { color:#7a8fa3; font-size:10px; margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="topbar"><span id="depthText">地図をタップで水深表示</span></div>
+<div id="fishCard">
+  <span class="close" onclick="this.parentElement.style.display='none'">×</span>
+  <h3>🎣 この辺で狙える魚（推定）</h3>
+  <div class="basis" id="fishBasis"></div>
+  <ul id="fishList"></ul>
+  <div class="disclaim">水深・底質・時期からの推定です。釣果を保証するものではありません。</div>
+</div>
+
+<div id="panel">
+  <label><input type="checkbox" id="chkDepth" checked> 水深の色分け・等深線</label>
+  <label><input type="checkbox" id="chkSlope" checked> かけあがり（急斜面）</label>
+  <label><input type="checkbox" id="chkSed" checked> 底質（岩・砂など）</label>
+  <div id="sedLegend" style="display:flex;flex-wrap:wrap;gap:4px 8px;margin:2px 0 0 22px;color:#cfe3f5;font-size:10px">
+    <span><span class="sw" style="background:#e05555"></span> 岩</span>
+    <span><span class="sw" style="background:#ff9f40"></span> 礫</span>
+    <span><span class="sw" style="background:#ffd966"></span> 砂</span>
+    <span><span class="sw" style="background:#a0785a"></span> 泥</span>
+    <span><span class="sw" style="background:#f2f2f2"></span> 貝</span>
+  </div>
+  <div style="margin-top:4px">透明度
+    <input type="range" id="opacity" min="10" max="100" value="75">
+  </div>
+  <div class="legend-bar"></div>
+  <div class="legend-labels"><span>0m</span><span>10</span><span>30</span><span>100</span><span>500+</span></div>
+  <div class="slope-legend">
+    <span class="sw" style="background:#ffd250"></span>ゆるい
+    <span class="sw" style="background:#ff8c28"></span>急
+    <span class="sw" style="background:#eb281e"></span>崖・かけあがり
+  </div>
+</div>
+
+<script>
+const META_URL = 'data/meta.json';
+let meta = null, depthGrid = null, sedData = null;
+
+const map = new maplibregl.Map({
+  container: 'map',
+  center: [139.85, 35.35],
+  zoom: 9.2,
+  maxZoom: 17, minZoom: 7,
+  attributionControl: false,
+  style: {
+    version: 8,
+    glyphs: 'https://glyphs.geolonia.com/{fontstack}/{range}.pbf',
+    sources: {
+      photo: {
+        type: 'raster',
+        tiles: ['https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'],
+        tileSize: 256, maxzoom: 18,
+        attribution: '地図: <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a> / 水深: NOAA ETOPO 2022 (GEBCO) / 底質: <a href="https://www.msil.go.jp/">海しる(海上保安庁)</a>'
+      }
+    },
+    layers: [{ id: 'photo', type: 'raster', source: 'photo' }]
+  }
+});
+map.addControl(new maplibregl.AttributionControl({compact:true}));
+map.addControl(new maplibregl.NavigationControl({showCompass:false}), 'top-right');
+map.addControl(new maplibregl.GeolocateControl({
+  positionOptions:{enableHighAccuracy:true}, trackUserLocation:true
+}), 'top-right');
+map.addControl(new maplibregl.ScaleControl({unit:'metric'}));
+
+async function init() {
+  meta = await (await fetch(META_URL)).json();
+  const buf = await (await fetch('data/depth.bin')).arrayBuffer();
+  depthGrid = new Int16Array(buf);
+
+  const corners = [
+    [meta.west, meta.north], [meta.east, meta.north],
+    [meta.east, meta.south], [meta.west, meta.south]
+  ];
+  map.addSource('depthimg', { type:'image', url:'data/depth_only.png', coordinates:corners });
+  map.addSource('slopeimg', { type:'image', url:'data/slope.png', coordinates:corners });
+  map.addLayer({ id:'depth-layer', type:'raster', source:'depthimg',
+                 paint:{ 'raster-opacity':0.75, 'raster-resampling':'linear' } });
+  map.addLayer({ id:'slope-layer', type:'raster', source:'slopeimg',
+                 paint:{ 'raster-opacity':0.85, 'raster-resampling':'linear' } });
+
+  // 底質 points (海しるAPI, 電子海図由来)
+  const SED_COLOR = ['match', ['get','t'],
+    '石・岩', '#e05555',
+    '礫',     '#ff9f40',
+    '砂',     '#ffd966',
+    '泥・粘土','#a0785a',
+    '貝殻',   '#f2f2f2',
+    'さんご', '#ff7eb6',
+    '溶岩',   '#3d3d4d',
+    '#9aa5b1'];
+  sedData = await (await fetch('data/sediment.json')).json();
+  map.addSource('sediment', { type:'geojson', data:sedData });
+  map.addLayer({ id:'sed-layer', type:'circle', source:'sediment',
+    minzoom: 9.5,
+    paint:{
+      'circle-color': SED_COLOR,
+      'circle-radius': ['interpolate',['linear'],['zoom'], 8,2.2, 11,4.5, 14,7],
+      'circle-stroke-color':'rgba(20,32,44,.8)',
+      'circle-stroke-width':1,
+      'circle-opacity':0.9
+    }});
+  map.addLayer({ id:'sed-label', type:'symbol', source:'sediment',
+    minzoom: 12,
+    layout:{
+      'text-field': ['get','t'],
+      'text-font': ['Noto Sans CJK JP Regular'],
+      'text-size': 11,
+      'text-offset': [0, 1.1],
+      'text-allow-overlap': false
+    },
+    paint:{ 'text-color':'#fff', 'text-halo-color':'rgba(20,32,44,.9)', 'text-halo-width':1.2 }});
+}
+map.on('load', init);
+
+// ---- depth lookup (bilinear over 450m grid; 32767 = land) ----
+function depthAt(lng, lat) {
+  if (!meta || !depthGrid) return null;
+  if (lng < meta.west || lng > meta.east || lat < meta.south || lat > meta.north) return null;
+  const fx = (lng - meta.west) / (meta.east - meta.west) * (meta.nlon - 1);
+  const fy = (meta.north - lat) / (meta.north - meta.south) * (meta.nlat - 1);
+  const x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const x1 = Math.min(x0 + 1, meta.nlon - 1), y1 = Math.min(y0 + 1, meta.nlat - 1);
+  const g = (yy, xx) => depthGrid[yy * meta.nlon + xx];
+  const vals = [g(y0,x0), g(y0,x1), g(y1,x0), g(y1,x1)];
+  if (vals.every(v => v === 32767)) return 'land';
+  // bilinear over water cells only
+  const wx = fx - x0, wy = fy - y0;
+  const wts = [(1-wx)*(1-wy), wx*(1-wy), (1-wx)*wy, wx*wy];
+  let s = 0, wsum = 0;
+  for (let i = 0; i < 4; i++) {
+    if (vals[i] !== 32767) { s += vals[i] * wts[i]; wsum += wts[i]; }
+  }
+  if (wsum < 0.2) return 'land';
+  return (s / wsum) / 10; // meters
+}
+
+// ---- fish species inference ------------------------------------------------
+// hab: sand/mud/rock/gravel/shell ('any'=底質不問), d:[min,max]m,
+// m: 釣期(月), peak: 旬(◎), reg: bay/bayInner/outer/any, slope: かけあがり好き
+const FISH = [
+  {n:'シロギス',   hab:['sand'],               d:[1,35],   m:[4,5,6,7,8,9,10,11], peak:[6,7,8,9], reg:'any',      how:'ちょい投げ・投げ'},
+  {n:'マゴチ',     hab:['sand','mud'],          d:[2,30],   m:[4,5,6,7,8,9,10],    peak:[5,6,7],   reg:'any',      how:'ルアー・泳がせ', slope:true},
+  {n:'ヒラメ',     hab:['sand','gravel'],       d:[3,60],   m:[1,2,3,10,11,12],    peak:[11,12,1], reg:'outer',    how:'ルアー・泳がせ', slope:true},
+  {n:'マコガレイ', hab:['sand','mud'],          d:[3,40],   m:[1,2,3,4,11,12],     peak:[12,1,2],  reg:'any',      how:'投げ'},
+  {n:'マハゼ',     hab:['mud','sand'],          d:[0,8],    m:[6,7,8,9,10,11],     peak:[8,9,10],  reg:'bayInner', how:'ちょい投げ'},
+  {n:'イシモチ',   hab:['sand','mud'],          d:[5,40],   m:[4,5,6,7,8,9],       peak:[5,6,7],   reg:'any',      how:'投げ・胴突き'},
+  {n:'カサゴ',     hab:['rock','gravel','shell'],d:[1,80],  m:[1,2,3,4,5,6,7,8,9,10,11,12], peak:[11,12,1,2], reg:'any', how:'穴釣り・胴突き'},
+  {n:'メバル',     hab:['rock'],                d:[1,40],   m:[1,2,3,4,5,11,12],   peak:[2,3,4],   reg:'any',      how:'メバリング・ウキ釣り'},
+  {n:'アイナメ',   hab:['rock','gravel'],       d:[2,40],   m:[1,2,3,11,12],       peak:[12,1],    reg:'any',      how:'ブラクリ・投げ'},
+  {n:'クロダイ',   hab:['rock','shell','gravel'],d:[0.5,20],m:[3,4,5,6,7,8,9,10,11],peak:[5,6,9,10],reg:'any',     how:'ヘチ・ウキフカセ', slope:true},
+  {n:'メジナ',     hab:['rock'],                d:[1,15],   m:[1,2,3,4,10,11,12],  peak:[12,1,2],  reg:'outer',    how:'ウキフカセ'},
+  {n:'アオリイカ', hab:['rock','gravel'],       d:[2,25],   m:[4,5,6,9,10,11],     peak:[4,5,10],  reg:'outer',    how:'エギング'},
+  {n:'カワハギ',   hab:['shell','sand','rock'], d:[8,40],   m:[9,10,11,12,1],      peak:[10,11],   reg:'any',      how:'胴突き（船・堤防）'},
+  {n:'シーバス（スズキ）', hab:'any',           d:[0.5,30], m:[1,2,3,4,5,6,7,8,9,10,11,12], peak:[10,11,12], reg:'any', how:'ルアー', slope:true},
+  {n:'アジ',       hab:'any',                   d:[5,90],   m:[1,2,3,4,5,6,7,8,9,10,11,12], peak:[6,7,8,9,10], reg:'any', how:'サビキ・アジング'},
+  {n:'サバ',       hab:'any',                   d:[8,100],  m:[5,6,7,8,9,10,11],   peak:[7,8,9],   reg:'any',      how:'サビキ・ジグ'},
+  {n:'イナダ（青物）', hab:'any',               d:[10,100], m:[7,8,9,10,11],       peak:[9,10],    reg:'outer',    how:'ショアジギ・カゴ', slope:true},
+  {n:'タチウオ',   hab:'any',                   d:[20,100], m:[6,7,8,9,10,11,12],  peak:[8,9,10],  reg:'bay',      how:'テンヤ・ジグ（船）'},
+  {n:'マダイ',     hab:'any',                   d:[15,100], m:[3,4,5,6,9,10,11],   peak:[4,5],     reg:'any',      how:'タイラバ・コマセ（船）', slope:true},
+  {n:'アマダイ',   hab:['mud','sand'],          d:[60,150], m:[1,2,3,10,11,12],    peak:[11,12,1], reg:'outer',    how:'エサ（船）'},
+];
+const HAB_MAP = {'砂':'sand','泥・粘土':'mud','石・岩':'rock','礫':'gravel','貝殻':'shell','さんご':'rock','溶岩':'rock'};
+
+function regionOf(lng, lat) {
+  const bay = lng > 139.62 && lng < 140.15 && lat > 35.22 && lat < 35.72;
+  if (bay) return lat > 35.45 ? 'bayInner' : 'bay';
+  return 'outer';
+}
+function slopeAt(lng, lat) {  // tan slope from depth grid (±1セル≒450m)
+  const dLon = 0.0045 / Math.cos(lat * Math.PI / 180), dLat = 0.0045;
+  const dE = depthAt(lng + dLon, lat), dW = depthAt(lng - dLon, lat);
+  const dN = depthAt(lng, lat + dLat), dS = depthAt(lng, lat - dLat);
+  const num = v => (typeof v === 'number') ? v : null;
+  let gx = null, gy = null;
+  if (num(dE) !== null && num(dW) !== null) gx = (dE - dW) / 1000;
+  if (num(dN) !== null && num(dS) !== null) gy = (dN - dS) / 1000;
+  if (gx === null && gy === null) return 0;
+  return Math.hypot(gx || 0, gy || 0);
+}
+function sedimentsNear(lng, lat, radKm) {  // 半径内の底質タイプ（多い順）
+  if (!sedData) return [];
+  const kx = 111.32 * Math.cos(lat * Math.PI / 180), ky = 110.95;
+  const cnt = {};
+  for (const f of sedData.features) {
+    const [x, y] = f.geometry.coordinates;
+    const dx = (x - lng) * kx, dy = (y - lat) * ky;
+    if (dx * dx + dy * dy <= radKm * radKm) {
+      const t = f.properties.t;
+      cnt[t] = (cnt[t] || 0) + 1;
+    }
+  }
+  return Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+}
+function showFish(lng, lat, depth) {
+  const card = document.getElementById('fishCard');
+  const month = new Date().getMonth() + 1;
+  const reg = regionOf(lng, lat);
+  const steep = slopeAt(lng, lat) >= 0.03;
+  const sedJp = sedimentsNear(lng, lat, 2.0).slice(0, 3);
+  const habs = new Set(sedJp.map(t => HAB_MAP[t]));
+
+  const rows = [];
+  for (const f of FISH) {
+    if (depth < f.d[0] || depth > f.d[1]) continue;
+    if (f.reg !== 'any') {
+      if (f.reg === 'bay' && reg === 'outer') continue;
+      if (f.reg === 'bayInner' && reg !== 'bayInner') continue;
+      if (f.reg === 'outer' && reg !== 'outer') continue;
+    }
+    let habScore = 0;
+    if (f.hab !== 'any' && habs.size) {
+      if (!f.hab.some(h => habs.has(h))) continue;
+      habScore = 2;
+    }
+    if (!f.m.includes(month)) continue;
+    const peak = f.peak.includes(month);
+    const score = (peak ? 3 : 0) + habScore + ((f.slope && steep) ? 1 : 0);
+    rows.push({ f, peak, score });
+  }
+  rows.sort((a, b) => b.score - a.score);
+
+  const basis = ['水深' + depth.toFixed(1) + 'm',
+                 sedJp.length ? '底質:' + sedJp.join('・') : '底質:データ無し',
+                 steep ? 'かけあがり付近' : null,
+                 {bayInner:'東京湾奥', bay:'東京湾', outer:'外海側'}[reg]]
+                .filter(Boolean).join(' ／ ');
+  document.getElementById('fishBasis').textContent = basis;
+  const ul = document.getElementById('fishList');
+  if (!rows.length) {
+    ul.innerHTML = '<li><span class="fn">対象魚少なめ</span><span class="how">深場・船釣り域か時期外れ</span></li>';
+  } else {
+    ul.innerHTML = rows.slice(0, 9).map(r =>
+      '<li><span class="fn">' + r.f.n + (r.peak ? '<span class="peak">◎旬</span>' : '') +
+      '</span><span class="how">' + r.f.how + '</span></li>').join('');
+  }
+  card.style.display = 'block';
+}
+
+let marker = null;
+map.on('click', e => {
+  const d = depthAt(e.lngLat.lng, e.lngLat.lat);
+  const el = document.getElementById('depthText');
+  // nearby sediment point?
+  let sed = '';
+  if (map.getLayer('sed-layer')) {
+    const px = 14;
+    const fs = map.queryRenderedFeatures(
+      [[e.point.x - px, e.point.y - px], [e.point.x + px, e.point.y + px]],
+      { layers: ['sed-layer'] });
+    if (fs.length) sed = '<span class="sub">底質: ' + fs[0].properties.t + '</span>';
+  }
+  if (d === null) el.textContent = 'データ範囲外です';
+  else if (d === 'land') el.textContent = '陸地';
+  else el.innerHTML = '水深 <span class="depth">' + d.toFixed(1) + ' m</span>' +
+       (sed || '<span class="sub">±あり(450m格子)</span>');
+  if (typeof d === 'number') showFish(e.lngLat.lng, e.lngLat.lat, d);
+  else document.getElementById('fishCard').style.display = 'none';
+  if (marker) marker.remove();
+  marker = new maplibregl.Marker({color:'#ff5252', scale:0.8})
+    .setLngLat(e.lngLat).addTo(map);
+});
+
+// ---- UI ----
+const setVis = (id, on) =>
+  map.getLayer(id) && map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+document.getElementById('chkDepth').onchange = e => setVis('depth-layer', e.target.checked);
+document.getElementById('chkSlope').onchange = e => setVis('slope-layer', e.target.checked);
+document.getElementById('chkSed').onchange = e => {
+  setVis('sed-layer', e.target.checked);
+  setVis('sed-label', e.target.checked);
+  document.getElementById('sedLegend').style.display = e.target.checked ? 'flex' : 'none';
+};
+document.getElementById('opacity').oninput = e => {
+  const v = e.target.value / 100;
+  if (map.getLayer('depth-layer')) map.setPaintProperty('depth-layer', 'raster-opacity', v);
+  if (map.getLayer('slope-layer')) map.setPaintProperty('slope-layer', 'raster-opacity', Math.min(1, v + 0.1));
+};
+</script>
+</body>
+</html>

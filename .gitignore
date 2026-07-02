@@ -1,0 +1,3 @@
+# raw ETOPO tile (18MB, re-downloadable via tools/download_etopo.py)
+data/*.nc
+__pycache__/
