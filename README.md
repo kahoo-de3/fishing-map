@@ -17,14 +17,15 @@ python -m http.server 8765 --directory docs
 
 → ブラウザで http://localhost:8765 を開く。
 
-## スマホで使う（公開手順）
+## 公開URL（スマホで使う）
 
-`docs/` フォルダを静的ホスティングに置くだけです。おすすめは GitHub Pages：
+**https://kahoo-de3.github.io/fishing-map/**
 
-1. GitHubに新リポジトリを作成（例: fishing-map）
-2. `docs/` の中身をリポジトリ直下にpush
-3. Settings → Pages → Branch: main / root を選択
-4. 発行されたURLをスマホのSafari/Chromeで開き、「ホーム画面に追加」→ アプリのように使える（GPSの現在地ボタンはHTTPS必須なので公開後に有効になります）
+GitHub Pages（main ブランチの /docs フォルダ）で公開中。
+スマホのSafari/Chromeで開き「ホーム画面に追加」するとアプリのように使えます。
+HTTPSなのでGPSの現在地ボタンも有効。
+
+更新の反映: ファイルを変更したら `git add -A && git commit && git push` で1〜2分後に反映されます。
 
 ## 構成
 
