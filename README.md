@@ -35,6 +35,8 @@ HTTPSなのでGPSの現在地ボタンも有効。
 - `docs/data/depth.bin` — タップ水深表示用グリッド（Int16、0.1m単位、32767=陸）
 - `docs/data/meta.json` — グリッドの範囲情報
 - `docs/data/sediment.json` — 底質ポイント（岩・礫・砂・泥・貝殻・さんご・溶岩、約7,300点）
+- `docs/data/coastal_muni.json` — 海に面した54市区町村の境界＋名前ラベル（国土数値情報N03由来、
+  tools/fetch_boundaries.py で生成。沿岸自治体リストは同スクリプト内で手動管理）
 - `tools/download_etopo.py` — 水深データのダウンロード（NOAA ETOPO 2022, 15秒メッシュ）
 - `tools/process.py` — オーバーレイ画像・グリッド生成
 - `tools/fetch_sediment.py` — 底質データの取得（海しるAPI。ポータル公開のお試しキー使用。

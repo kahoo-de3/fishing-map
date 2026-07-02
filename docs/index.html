@@ -78,6 +78,7 @@
   <label><input type="checkbox" id="chkDepth" checked> 水深の色分け・等深線</label>
   <label><input type="checkbox" id="chkSlope" checked> かけあがり（急斜面）</label>
   <label><input type="checkbox" id="chkSed" checked> 底質（岩・砂など）</label>
+  <label><input type="checkbox" id="chkMuni" checked> 市区町村界（沿岸）</label>
   <div id="sedLegend" style="display:flex;flex-wrap:wrap;gap:4px 8px;margin:2px 0 0 22px;color:#cfe3f5;font-size:10px">
     <span><span class="sw" style="background:#e05555"></span> 岩</span>
     <span><span class="sw" style="background:#ff9f40"></span> 礫</span>
@@ -115,7 +116,7 @@ const map = new maplibregl.Map({
         type: 'raster',
         tiles: ['https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'],
         tileSize: 256, maxzoom: 18,
-        attribution: '地図: <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a> / 水深: NOAA ETOPO 2022 (GEBCO) / 底質: <a href="https://www.msil.go.jp/">海しる(海上保安庁)</a>'
+        attribution: '地図: <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a> / 水深: NOAA ETOPO 2022 (GEBCO) / 底質: <a href="https://www.msil.go.jp/">海しる(海上保安庁)</a> / 行政界: 国土数値情報N03'
       }
     },
     layers: [{ id: 'photo', type: 'raster', source: 'photo' }]
@@ -143,6 +144,26 @@ async function init() {
                  paint:{ 'raster-opacity':0.75, 'raster-resampling':'linear' } });
   map.addLayer({ id:'slope-layer', type:'raster', source:'slopeimg',
                  paint:{ 'raster-opacity':0.85, 'raster-resampling':'linear' } });
+
+  // 海に面した市区町村の境界と名前 (国土数値情報N03由来)
+  map.addSource('muni', { type:'geojson', data:'data/coastal_muni.json' });
+  map.addLayer({ id:'muni-casing', type:'line', source:'muni',
+    filter:['==', ['geometry-type'], 'MultiPolygon'],
+    paint:{ 'line-color':'rgba(10,20,30,.7)',
+            'line-width':['interpolate',['linear'],['zoom'], 8,2.5, 13,5] }});
+  map.addLayer({ id:'muni-line', type:'line', source:'muni',
+    filter:['==', ['geometry-type'], 'MultiPolygon'],
+    paint:{ 'line-color':'#ffffff', 'line-opacity':0.85,
+            'line-width':['interpolate',['linear'],['zoom'], 8,1, 13,2] }});
+  map.addLayer({ id:'muni-label', type:'symbol', source:'muni',
+    filter:['has', 'pt'],
+    layout:{
+      'text-field': ['get','n'],
+      'text-font': ['Noto Sans CJK JP Regular'],
+      'text-size': ['interpolate',['linear'],['zoom'], 8,11, 12,15],
+      'text-allow-overlap': false
+    },
+    paint:{ 'text-color':'#fff', 'text-halo-color':'rgba(20,32,44,.95)', 'text-halo-width':1.6 }});
 
   // 底質 points (海しるAPI, 電子海図由来)
   const SED_COLOR = ['match', ['get','t'],
@@ -335,6 +356,9 @@ document.getElementById('chkSed').onchange = e => {
   setVis('sed-layer', e.target.checked);
   setVis('sed-label', e.target.checked);
   document.getElementById('sedLegend').style.display = e.target.checked ? 'flex' : 'none';
+};
+document.getElementById('chkMuni').onchange = e => {
+  for (const id of ['muni-casing', 'muni-line', 'muni-label']) setVis(id, e.target.checked);
 };
 document.getElementById('opacity').oninput = e => {
   const v = e.target.value / 100;
