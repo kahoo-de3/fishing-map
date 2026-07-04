@@ -53,8 +53,19 @@
   #fishCard h3 { margin:0 0 2px; font-size:13px; color:#5fd4ff; }
   #fishCard .basis { color:#9fb8cc; font-size:11px; margin-bottom:6px; }
   #fishCard ul { margin:0; padding:0; list-style:none; }
-  #fishCard li { padding:3px 0; border-top:1px solid rgba(255,255,255,.08);
-    display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  #fishCard li { padding:3px 4px; border-top:1px solid rgba(255,255,255,.08);
+    display:flex; justify-content:space-between; align-items:baseline; gap:8px;
+    cursor:pointer; border-radius:6px; }
+  #fishCard li.sel { background:rgba(43,255,136,.18); outline:1px solid rgba(43,255,136,.5); }
+
+  #spChip {
+    position:absolute; bottom:calc(330px + env(safe-area-inset-bottom)); left:8px; z-index:11;
+    background:rgba(20,60,40,.92); color:#b8ffd9; border:1px solid rgba(43,255,136,.6);
+    border-radius:18px; padding:5px 12px; font-size:12px; font-weight:600;
+    cursor:pointer; display:none; box-shadow:0 2px 8px rgba(0,0,0,.35);
+  }
+  #panel select { width:100%; margin-top:4px; background:#22384c; color:#fff;
+    border:1px solid #3a5670; border-radius:6px; padding:3px 4px; font-size:12px; }
   #fishCard li .fn { font-weight:600; white-space:nowrap; }
   #fishCard li .fn .peak { color:#ffce54; font-size:11px; margin-left:4px; }
   #fishCard li .fn .mon { color:#ffce54; font-size:10px; font-weight:500; margin-left:5px; }
@@ -81,8 +92,9 @@
   </h3>
   <div class="basis" id="fishBasis"></div>
   <ul id="fishList"></ul>
-  <div class="disclaim">各エリアの船宿・釣果サイトで報告実績のある魚種を、時期・水深で絞って表示。釣果を保証するものではありません。</div>
+  <div class="disclaim">各エリアの船宿・釣果サイトで報告実績のある魚種を、時期・水深で絞って表示。魚名タップでその魚の狙える範囲を地図に表示。釣果を保証するものではありません。</div>
 </div>
+<div id="spChip"></div>
 
 <div id="panel">
   <label><input type="checkbox" id="chkDepth" checked> 水深の色分け・等深線</label>
@@ -90,6 +102,7 @@
   <label><input type="checkbox" id="chkSed" checked> 底質（岩・砂など）</label>
   <label><input type="checkbox" id="chkMuni" checked> 市区町村界（沿岸）</label>
   <label><input type="checkbox" id="chkPort" checked> 港名（<span style="color:#ff7b7b">赤字</span>）</label>
+  <select id="selFish"><option value="">🎣 魚種で絞る（選択なし）</option></select>
   <div id="sedLegend" style="display:flex;flex-wrap:wrap;gap:4px 8px;margin:2px 0 0 22px;color:#cfe3f5;font-size:10px">
     <span><span class="sw" style="background:#e05555"></span> 岩</span>
     <span><span class="sw" style="background:#ff9f40"></span> 礫</span>
@@ -437,7 +450,7 @@ function showFish(lng, lat, depth) {
     const peak = f.peak.includes(month);
     const habHit = f.hab && habs.size && f.hab.some(h => habs.has(h));
     const score = (peak ? 3 : 0) + (habHit ? 1 : 0) + ((f.slope && steep) ? 1 : 0);
-    rows.push({ f, from, peak, score, idx });
+    rows.push({ key, f, from, peak, score, idx });
   });
   rows.sort((a, b) => (b.score - a.score) || (a.idx - b.idx));
 
@@ -454,7 +467,8 @@ function showFish(lng, lat, depth) {
   } else {
     ul.innerHTML = rows.slice(0, 10).map(r => {
       const from = landOnly ? '陸' : r.from;
-      return '<li><span class="fn">' + r.f.n +
+      return '<li data-k="' + r.key + '"' + (r.key === selectedFish ? ' class="sel"' : '') +
+        '><span class="fn">' + r.f.n +
         '<span class="src ' + (from === '船' ? 'sb' : from === '陸' ? 'sr' : 'sm') + '">' + from + '</span>' +
         '<span class="mon">' + r.f.mtxt + '</span>' +
         '</span><span class="how">' + r.f.how + '</span></li>';
@@ -466,8 +480,123 @@ function showFish(lng, lat, depth) {
 document.getElementById('chkLandOnly').onchange = e => {
   landOnly = e.target.checked;
   localStorage.setItem('landOnly', landOnly ? '1' : '0');
-  if (lastFishPt) showFish(...lastFishPt);
+  if (selectedFish) setFishFilter(selectedFish);
+  else if (lastFishPt) showFish(...lastFishPt);
 };
+
+// ---- 魚種で絞る（狙える範囲を地図にハイライト） ------------------------------
+let selectedFish = null;
+const AREA_MAPS = {};
+for (const id in AREA_FISH) AREA_MAPS[id] = new Map(AREA_FISH[id]);
+const RIVER_MAP = new Map(AREA_FISH.river);
+
+function buildMask(key) {
+  const f = SP[key];
+  const month = new Date().getMonth() + 1;
+  if (!f.m.includes(month)) return null;    // 時期外れ → 範囲なし
+  const W = meta.nlon, Hg = meta.nlat;
+  const on = new Uint8Array(W * Hg);
+  for (let iy = 0; iy < Hg; iy++) {
+    const lat = meta.north - (meta.north - meta.south) * iy / (Hg - 1);
+    for (let ix = 0; ix < W; ix++) {
+      const raw = depthGrid[iy * W + ix];
+      if (raw === 32767) continue;
+      const depth = raw / 10;
+      if (depth < f.d[0] || depth > f.d[1]) continue;
+      if (landOnly && depth > 30) continue;
+      const lng = meta.west + (meta.east - meta.west) * ix / (W - 1);
+      const area = AREAS.find(a => a[2](lng, lat));
+      let from;
+      if (['bayInner', 'bay'].includes(area[0]) && depth < 8 &&
+          waterFraction(lng, lat, 1.4) < 0.35) {
+        from = RIVER_MAP.get(key);
+      } else {
+        from = AREA_MAPS[area[0]] && AREA_MAPS[area[0]].get(key);
+      }
+      if (!from) continue;
+      if (from === '陸' && depth > 30) continue;
+      if (from === '船' && depth < 2) continue;
+      if (landOnly && !from.includes('陸')) continue;
+      on[iy * W + ix] = 1;
+    }
+  }
+  const H = 512;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(W, H);
+  const merc = deg => Math.log(Math.tan(Math.PI / 4 + deg * Math.PI / 360));
+  const y0 = merc(meta.north), y1 = merc(meta.south);
+  for (let r = 0; r < H; r++) {
+    const ym = y0 + (y1 - y0) * r / (H - 1);
+    const lat = (2 * Math.atan(Math.exp(ym)) - Math.PI / 2) * 180 / Math.PI;
+    const iy = Math.round((meta.north - lat) / (meta.north - meta.south) * (Hg - 1));
+    for (let ix = 0; ix < W; ix++) {
+      if (on[iy * W + ix]) {
+        const p = (r * W + ix) * 4;
+        img.data[p] = 43; img.data[p + 1] = 255; img.data[p + 2] = 136; img.data[p + 3] = 150;
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return cv.toDataURL();
+}
+
+function updateMask() {
+  if (!meta || !depthGrid) return;
+  if (!selectedFish) {
+    if (map.getLayer('fish-mask')) map.setLayoutProperty('fish-mask', 'visibility', 'none');
+    return;
+  }
+  const url = buildMask(selectedFish);
+  if (!url) {
+    if (map.getLayer('fish-mask')) map.setLayoutProperty('fish-mask', 'visibility', 'none');
+    return;
+  }
+  const corners = [[meta.west, meta.north], [meta.east, meta.north],
+                   [meta.east, meta.south], [meta.west, meta.south]];
+  if (map.getSource('spmask')) {
+    map.getSource('spmask').updateImage({ url, coordinates: corners });
+    map.setLayoutProperty('fish-mask', 'visibility', 'visible');
+  } else {
+    map.addSource('spmask', { type: 'image', url, coordinates: corners });
+    map.addLayer({ id: 'fish-mask', type: 'raster', source: 'spmask',
+                   paint: { 'raster-opacity': 0.8, 'raster-resampling': 'nearest' } },
+                 map.getLayer('sed-layer') ? 'sed-layer' : undefined);
+  }
+}
+
+function setFishFilter(key) {
+  selectedFish = key || null;
+  document.getElementById('selFish').value = selectedFish || '';
+  const chip = document.getElementById('spChip');
+  if (selectedFish) {
+    const month = new Date().getMonth() + 1;
+    const off = !SP[selectedFish].m.includes(month);
+    chip.innerHTML = '■ ' + SP[selectedFish].n + ' が狙える範囲' +
+      (landOnly ? '（陸のみ）' : '') + (off ? '<span style="color:#ff9f7b">：今は時期外れ</span>' : '') +
+      '　<b>×</b>';
+    chip.style.display = 'block';
+  } else chip.style.display = 'none';
+  updateMask();
+  if (lastFishPt) showFish(...lastFishPt);
+}
+
+(() => {
+  const sel = document.getElementById('selFish');
+  for (const k in SP) {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = SP[k].n;
+    sel.appendChild(o);
+  }
+  sel.onchange = e => setFishFilter(e.target.value || null);
+  document.getElementById('spChip').onclick = () => setFishFilter(null);
+  document.getElementById('fishList').onclick = e => {
+    const li = e.target.closest('li');
+    if (!li || !li.dataset.k) return;
+    setFishFilter(li.dataset.k === selectedFish ? null : li.dataset.k);
+  };
+})();
 
 let marker = null;
 map.on('click', e => {
