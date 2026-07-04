@@ -569,12 +569,8 @@ function setFishFilter(key) {
   document.getElementById('selFish').value = selectedFish || '';
   const chip = document.getElementById('spChip');
   if (selectedFish) {
-    const month = new Date().getMonth() + 1;
-    const off = !SP[selectedFish].m.includes(month);
-    chip.innerHTML = '■ ' + SP[selectedFish].n + ' が狙える範囲' +
-      (landOnly ? '（陸のみ）' : '') +
-      ' <span style="color:' + (off ? '#ff9f7b' : '#ffce54') + '">釣期' + SP[selectedFish].mtxt + '</span>' +
-      '　<b>×</b>';
+    chip.innerHTML = '■ ' + SP[selectedFish].n + ' の釣れるポイント' +
+      (landOnly ? '（陸のみ）' : '') + '　<b>×</b>';
     chip.style.display = 'block';
   } else chip.style.display = 'none';
   updateMask();
