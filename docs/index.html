@@ -491,9 +491,7 @@ for (const id in AREA_FISH) AREA_MAPS[id] = new Map(AREA_FISH[id]);
 const RIVER_MAP = new Map(AREA_FISH.river);
 
 function buildMask(key) {
-  const f = SP[key];
-  const month = new Date().getMonth() + 1;
-  if (!f.m.includes(month)) return null;    // 時期外れ → 範囲なし
+  const f = SP[key];   // 範囲表示はシーズン不問（釣期はチップに併記）
   const W = meta.nlon, Hg = meta.nlat;
   const on = new Uint8Array(W * Hg);
   for (let iy = 0; iy < Hg; iy++) {
@@ -574,7 +572,8 @@ function setFishFilter(key) {
     const month = new Date().getMonth() + 1;
     const off = !SP[selectedFish].m.includes(month);
     chip.innerHTML = '■ ' + SP[selectedFish].n + ' が狙える範囲' +
-      (landOnly ? '（陸のみ）' : '') + (off ? '<span style="color:#ff9f7b">：今は時期外れ</span>' : '') +
+      (landOnly ? '（陸のみ）' : '') +
+      ' <span style="color:' + (off ? '#ff9f7b' : '#ffce54') + '">釣期' + SP[selectedFish].mtxt + '</span>' +
       '　<b>×</b>';
     chip.style.display = 'block';
   } else chip.style.display = 'none';
