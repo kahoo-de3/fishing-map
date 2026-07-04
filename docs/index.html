@@ -462,8 +462,8 @@ function showFish(lng, lat, depth) {
   document.getElementById('fishBasis').textContent = basis;
   const ul = document.getElementById('fishList');
   if (!rows.length) {
-    ul.innerHTML = '<li><span class="fn">対象魚少なめ</span><span class="how">' +
-      (landOnly ? '陸からの実績種なし（沖合か時期外れ）' : '深場・沖合か時期外れ') + '</span></li>';
+    ul.innerHTML = '<li><span class="fn">該当なし</span><span class="how">' +
+      (landOnly ? 'この地点は陸からの実績種がありません' : 'この地点の実績種がありません') + '</span></li>';
   } else {
     ul.innerHTML = rows.slice(0, 10).map(r => {
       const from = landOnly ? '陸' : r.from;
