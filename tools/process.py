@@ -19,10 +19,51 @@ south, north = float(lat.min()), float(lat.max())
 west, east = float(lon.min()), float(lon.max())
 print("grid", z.shape, "bbox", west, south, east, north)
 
+# ---------------- 100m land-use water mask (tools/fetch_landmask.py) --------
+# ETOPO の「標高が負」だけでは水と陸を分けられない。450m平均で海面下になる
+# ゼロメートル地帯や、川筋1セルが隣へ漏れた分が市街地まで水域になってしまう。
+# 実際の土地利用（国土数値情報 L03-b 100mメッシュ）と AND を取って陸を落とす。
+LM_PATH = os.path.join(OUT, "data", "landmask.bin")
+if not os.path.exists(LM_PATH):
+    raise SystemExit("landmask.bin がありません。先に tools/fetch_landmask.py を実行してください。")
+lm = json.load(open(os.path.join(OUT, "data", "landmask.json")))
+lm_water = np.unpackbits(np.fromfile(LM_PATH, dtype=np.uint8)
+                         )[: lm["rows"] * lm["cols"]].reshape(lm["rows"], lm["cols"]).astype(bool)
+
+
+def lm_rows_for(lats):
+    """緯度配列 -> landmask の行番号（北が0）"""
+    return np.clip(lm["rows"] - 1 - (np.floor(lats * lm["latDiv"]).astype(int) - lm["y0"]),
+                   0, lm["rows"] - 1)
+
+
+def lm_cols_for(lngs):
+    return np.clip(np.floor(lngs * lm["lonDiv"]).astype(int) - lm["x0"], 0, lm["cols"] - 1)
+
+
 # ---------------- depth grid for tap lookup (original resolution) ----------
 # int16 decimeters of depth (positive down); 32767 = land
 depth = -z  # positive = depth in m
 grid = np.where(depth > 0, np.clip(depth * 10, 1, 32000), 32767).astype(np.int16)
+
+# 450mセル内に水域メッシュが1つも無ければ陸に落とす（保守的に「全部陸」のみ除去）。
+# タップ時の判定は index.html 側が100mマスクを直接引くのでこちらは粗くてよい。
+cell_lat = (north - south) / (nlat - 1)
+cell_lon = (east - west) / (nlon - 1)
+has_water = np.zeros((nlat, nlon), bool)
+for jj in range(nlat):
+    la = south + cell_lat * jj
+    r0, r1 = sorted(lm_rows_for(np.array([la - cell_lat / 2, la + cell_lat / 2])))
+    band = lm_water[r0:r1 + 1, :]
+    for ii in range(nlon):
+        lo = west + cell_lon * ii
+        c0, c1 = lm_cols_for(np.array([lo - cell_lon / 2, lo + cell_lon / 2]))
+        has_water[jj, ii] = band[:, c0:c1 + 1].any()
+dropped = (grid != 32767) & ~has_water
+print("450m格子: 水セル %d -> 土地利用で陸に戻したセル %d"
+      % (int((grid != 32767).sum()), int(dropped.sum())))
+grid = np.where(has_water, grid, np.int16(32767))
+
 # store north-up (row 0 = north)
 grid_nu = grid[::-1, :]
 grid_nu.tofile(os.path.join(OUT, "data", "depth.bin"))
@@ -44,10 +85,13 @@ lat_hi = np.linspace(south, north, H)
 # バイキュービック補間した zf で `> 0` 判定すると、荒川・江戸川のような
 # 1セル幅の水域が数百m〜1km にじみ出し、市街地まで水色に塗られてしまう。
 # （ndimage.zoom の既定 grid_mode=False は端点同士を対応させるので同じ式で逆引きする）
-water_orig = (-z) > 0                                     # (nlat, nlon), lat昇順
+water_orig = grid != 32767                                # (nlat, nlon), lat昇順
 iy_nn = np.round(np.arange(H) * (nlat - 1) / (H - 1)).astype(int)
 ix_nn = np.round(np.arange(W) * (nlon - 1) / (W - 1)).astype(int)
 water_hi = water_orig[np.ix_(iy_nn, ix_nn)]               # (H, W), lat昇順
+# さらに100mマスクと AND。水色は実際の水面（海・川・運河）の形どおりに出る
+lon_hi = np.linspace(west, east, W)
+water_hi &= lm_water[np.ix_(lm_rows_for(lat_hi), lm_cols_for(lon_hi))]
 
 # ---------------- reproject rows to Web Mercator spacing -------------------
 def merc(phi_deg):

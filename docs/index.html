@@ -125,6 +125,8 @@
 <script>
 const META_URL = 'data/meta.json';
 let meta = null, depthGrid = null, sedData = null;
+// 100mメッシュ土地利用（国土数値情報L03-b）由来の水域ビットマップ
+let lm = null, lmWater = null;
 
 const map = new maplibregl.Map({
   container: 'map',
@@ -140,7 +142,7 @@ const map = new maplibregl.Map({
         type: 'raster',
         tiles: ['https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'],
         tileSize: 256, maxzoom: 18,
-        attribution: '地図: <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a> / 水深: NOAA ETOPO 2022 (GEBCO) / 底質: <a href="https://www.msil.go.jp/">海しる(海上保安庁)</a> / 行政界: 国土数値情報N03'
+        attribution: '地図: <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a> / 水深: NOAA ETOPO 2022 (GEBCO) / 底質: <a href="https://www.msil.go.jp/">海しる(海上保安庁)</a> / 行政界: 国土数値情報N03 / 水域: 国土数値情報L03-b'
       }
     },
     layers: [{ id: 'photo', type: 'raster', source: 'photo' }]
@@ -157,6 +159,8 @@ async function init() {
   meta = await (await fetch(META_URL)).json();
   const buf = await (await fetch('data/depth.bin')).arrayBuffer();
   depthGrid = new Int16Array(buf);
+  lm = await (await fetch('data/landmask.json')).json();
+  lmWater = new Uint8Array(await (await fetch('data/landmask.bin')).arrayBuffer());
 
   const corners = [
     [meta.west, meta.north], [meta.east, meta.north],
@@ -242,10 +246,24 @@ async function init() {
 }
 map.on('load', init);
 
+// ---- 100mメッシュ土地利用による水／陸判定 ----------------------------------
+// ETOPO(450m)は「標高が負」でしか水を判定できず、市街地や川から数百m離れた
+// 陸まで水域になってしまう。実際の水面（海水域・河川地及び湖沼・海浜）で足切りする。
+// マスク範囲外＝外洋なので水扱い。マスク未ロード中も水扱い（ETOPO側の判定に任せる）。
+function isWaterLU(lng, lat) {
+  if (!lm || !lmWater) return true;
+  const c = Math.floor(lng * lm.lonDiv) - lm.x0;
+  const r = lm.rows - 1 - (Math.floor(lat * lm.latDiv) - lm.y0);
+  if (c < 0 || c >= lm.cols || r < 0 || r >= lm.rows) return true;
+  const i = r * lm.cols + c;
+  return (lmWater[i >> 3] >> (7 - (i & 7)) & 1) === 1;
+}
+
 // ---- depth lookup (bilinear over 450m grid; 32767 = land) ----
 function depthAt(lng, lat) {
   if (!meta || !depthGrid) return null;
   if (lng < meta.west || lng > meta.east || lat < meta.south || lat > meta.north) return null;
+  if (!isWaterLU(lng, lat)) return 'land';
   const fx = (lng - meta.west) / (meta.east - meta.west) * (meta.nlon - 1);
   const fy = (meta.north - lat) / (meta.north - meta.south) * (meta.nlat - 1);
   const x0 = Math.floor(fx), y0 = Math.floor(fy);
@@ -522,22 +540,35 @@ function buildMask(key) {
       on[iy * W + ix] = 1;
     }
   }
-  const H = 512;
+  // 出力は100mマスクの解像度で描く。450m格子のまま塗ると、川や岸に接した
+  // セルの緑が市街地の上まで四角く広がってしまうため、実際の水面で切り抜く。
+  const CW = lm ? lm.cols : W, CH = lm ? 1200 : 512;
   const cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
+  cv.width = CW; cv.height = CH;
   const ctx = cv.getContext('2d');
-  const img = ctx.createImageData(W, H);
+  const img = ctx.createImageData(CW, CH);
   const merc = deg => Math.log(Math.tan(Math.PI / 4 + deg * Math.PI / 360));
   const y0 = merc(meta.north), y1 = merc(meta.south);
-  for (let r = 0; r < H; r++) {
-    const ym = y0 + (y1 - y0) * r / (H - 1);
+  const colGrid = new Int32Array(CW), colLm = new Int32Array(CW);
+  for (let c = 0; c < CW; c++) {
+    const lng = meta.west + (meta.east - meta.west) * c / (CW - 1);
+    colGrid[c] = Math.round((lng - meta.west) / (meta.east - meta.west) * (W - 1));
+    colLm[c] = lm ? Math.min(lm.cols - 1, Math.max(0, Math.floor(lng * lm.lonDiv) - lm.x0)) : 0;
+  }
+  for (let r = 0; r < CH; r++) {
+    const ym = y0 + (y1 - y0) * r / (CH - 1);
     const lat = (2 * Math.atan(Math.exp(ym)) - Math.PI / 2) * 180 / Math.PI;
     const iy = Math.round((meta.north - lat) / (meta.north - meta.south) * (Hg - 1));
-    for (let ix = 0; ix < W; ix++) {
-      if (on[iy * W + ix]) {
-        const p = (r * W + ix) * 4;
-        img.data[p] = 43; img.data[p + 1] = 255; img.data[p + 2] = 136; img.data[p + 3] = 150;
+    const lr = lm ? Math.min(lm.rows - 1, Math.max(0,
+                 lm.rows - 1 - (Math.floor(lat * lm.latDiv) - lm.y0))) : 0;
+    for (let c = 0; c < CW; c++) {
+      if (!on[iy * W + colGrid[c]]) continue;
+      if (lm) {
+        const b = lr * lm.cols + colLm[c];
+        if (!(lmWater[b >> 3] >> (7 - (b & 7)) & 1)) continue;
       }
+      const p = (r * CW + c) * 4;
+      img.data[p] = 43; img.data[p + 1] = 255; img.data[p + 2] = 136; img.data[p + 3] = 150;
     }
   }
   ctx.putImageData(img, 0, 0);
