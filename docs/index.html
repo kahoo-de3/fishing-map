@@ -251,16 +251,20 @@ function depthAt(lng, lat) {
   const x0 = Math.floor(fx), y0 = Math.floor(fy);
   const x1 = Math.min(x0 + 1, meta.nlon - 1), y1 = Math.min(y0 + 1, meta.nlat - 1);
   const g = (yy, xx) => depthGrid[yy * meta.nlon + xx];
-  const vals = [g(y0,x0), g(y0,x1), g(y1,x0), g(y1,x1)];
-  if (vals.every(v => v === 32767)) return 'land';
+  // 直近セルが陸なら陸。バイリニアで判定すると隣の水セル（川・運河）の水深が
+  // 最大450m先の市街地まで漏れ出すため、水／陸の判定は必ず直近セルで行う。
+  const cx = Math.max(0, Math.min(meta.nlon - 1, Math.round(fx)));
+  const cy = Math.max(0, Math.min(meta.nlat - 1, Math.round(fy)));
+  if (g(cy, cx) === 32767) return 'land';
   // bilinear over water cells only
+  const vals = [g(y0,x0), g(y0,x1), g(y1,x0), g(y1,x1)];
   const wx = fx - x0, wy = fy - y0;
   const wts = [(1-wx)*(1-wy), wx*(1-wy), (1-wx)*wy, wx*wy];
   let s = 0, wsum = 0;
   for (let i = 0; i < 4; i++) {
     if (vals[i] !== 32767) { s += vals[i] * wts[i]; wsum += wts[i]; }
   }
-  if (wsum < 0.2) return 'land';
+  if (wsum <= 0) return 'land';
   return (s / wsum) / 10; // meters
 }
 

@@ -1,3 +1,5 @@
 # raw ETOPO tile (18MB, re-downloadable via tools/download_etopo.py)
 data/*.nc
+# 水深+かけあがり合成版。アプリは depth_only.png と slope.png しか使わない
+docs/data/overlay.png
 __pycache__/

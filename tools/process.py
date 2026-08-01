@@ -4,8 +4,9 @@ import numpy as np, json, os
 from scipy import ndimage
 from PIL import Image
 
-DATA = r"C:\Users\kahoo\Downloads\fishing-map\data"
-OUT = r"C:\Users\kahoo\Downloads\fishing-map\docs"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA = os.path.join(ROOT, "data")
+OUT = os.path.join(ROOT, "docs")
 os.makedirs(OUT, exist_ok=True)
 os.makedirs(os.path.join(OUT, "data"), exist_ok=True)
 
@@ -38,6 +39,16 @@ H, W = zf.shape
 # latitudes of upsampled rows (linear in degrees, ascending)
 lat_hi = np.linspace(south, north, H)
 
+# ---------------- water/land mask at ORIGINAL resolution -------------------
+# 水／陸の判定は必ず元の450m格子から最近傍で拡大する。
+# バイキュービック補間した zf で `> 0` 判定すると、荒川・江戸川のような
+# 1セル幅の水域が数百m〜1km にじみ出し、市街地まで水色に塗られてしまう。
+# （ndimage.zoom の既定 grid_mode=False は端点同士を対応させるので同じ式で逆引きする）
+water_orig = (-z) > 0                                     # (nlat, nlon), lat昇順
+iy_nn = np.round(np.arange(H) * (nlat - 1) / (H - 1)).astype(int)
+ix_nn = np.round(np.arange(W) * (nlon - 1) / (W - 1)).astype(int)
+water_hi = water_orig[np.ix_(iy_nn, ix_nn)]               # (H, W), lat昇順
+
 # ---------------- reproject rows to Web Mercator spacing -------------------
 def merc(phi_deg):
     phi = np.radians(phi_deg)
@@ -54,7 +65,10 @@ zi = np.clip(row_idx, 0, H - 1)
 i0 = np.floor(zi).astype(int); i1 = np.minimum(i0 + 1, H - 1)
 w1 = (zi - i0)[:, None]
 zm = zf[i0, :] * (1 - w1) + zf[i1, :] * w1   # mercator-spaced, row0=north
-dep = -zm  # positive = depth
+# 水／陸マスクも同じ行並びへ（こちらは最近傍。補間すると陸へにじむ）
+water = water_hi[np.where(w1[:, 0] < 0.5, i0, i1), :]
+# 陸は完全に0、水は最低0.05mとして色・等深線・傾斜をすべてマスク内に閉じ込める
+dep = np.where(water, np.maximum(-zm, 0.05), 0.0)  # positive = depth
 
 # ---------------- color mapping --------------------------------------------
 # fishing-oriented palette: shallow cyan -> deep navy
@@ -80,7 +94,6 @@ rgb = np.zeros((H, W, 3))
 for ch in range(3):
     rgb[:, :, ch] = np.interp(dc, sd, sc[:, ch])
 
-water = dep > 0
 alpha = np.where(water, 185, 0).astype(np.float64)  # ~0.73 opacity over water
 
 # ---------------- contour lines --------------------------------------------
@@ -106,7 +119,7 @@ dx_hi = (lon[1] - lon[0]) * mlon / ZOOM
 zf_s = ndimage.gaussian_filter(zf, sigma=ZOOM * 0.6)
 gy, gx = np.gradient(-zf_s, dy_hi, dx_hi)
 slope_hi = np.hypot(gx, gy)                   # tan(slope)
-slope_hi[(-zf) <= 0] = 0
+slope_hi[~water_hi] = 0                       # 陸は元解像度マスクで除外
 # re-space rows to mercator like zm
 slope_m = slope_hi[i0, :] * (1 - w1) + slope_hi[i1, :] * w1
 
